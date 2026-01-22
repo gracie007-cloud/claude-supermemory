@@ -1,0 +1,18 @@
+{
+  "name": "supermemory-plugins",
+  "owner": {
+    "name": "Supermemory",
+    "email": "support@supermemory.ai"
+  },
+  "plugins": [
+    {
+      "name": "claude-supermemory",
+      "source": "./plugin",
+      "description": "Persistent memory across Claude Code sessions using Supermemory",
+      "version": "0.0.1",
+      "author": {
+        "name": "Supermemory"
+      }
+    }
+  ]
+}

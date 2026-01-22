@@ -1,0 +1,132 @@
+#!/usr/bin/env node
+/**
+ * SessionStart Hook - Context Injection
+ *
+ * Fetches relevant memories from Supermemory and injects them into Claude's context.
+ *
+ * Input (stdin):
+ *   { session_id, cwd, hook_event_name, source }
+ *
+ * Output (stdout):
+ *   { hookSpecificOutput: { hookEventName, additionalContext } }
+ */
+
+const { SupermemoryClient } = require('./lib/supermemory-client');
+const { getContainerTag, getProjectName } = require('./lib/container-tag');
+const { loadSettings, getApiKey, debugLog } = require('./lib/settings');
+const { readStdin, writeOutput } = require('./lib/stdin');
+
+async function main() {
+  const settings = loadSettings();
+
+  try {
+    const input = await readStdin();
+    const cwd = input.cwd || process.cwd();
+    const containerTag = getContainerTag(cwd);
+    const projectName = getProjectName(cwd);
+
+    debugLog(settings, 'SessionStart', { cwd, containerTag, projectName });
+
+    // Get API key
+    let apiKey;
+    try {
+      apiKey = getApiKey(settings);
+    } catch (err) {
+      // No API key - return minimal context
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: 'SessionStart',
+          additionalContext: `<supermemory-status>
+API key not configured. Set SUPERMEMORY_API_KEY to enable persistent memory.
+Get your key at: https://console.supermemory.ai
+</supermemory-status>`
+        }
+      });
+      return;
+    }
+
+    const client = new SupermemoryClient(apiKey);
+
+    // Fetch profile and memories in parallel
+    const [profileResult, memoriesResult] = await Promise.allSettled([
+      client.getProfile(containerTag, projectName),
+      client.listMemories(containerTag, settings.maxProjectMemories)
+    ]);
+
+    // Build context
+    const parts = [];
+    parts.push(`<supermemory-context project="${projectName}">`);
+
+    // Add profile if available
+    if (profileResult.status === 'fulfilled' && profileResult.value?.profile) {
+      const profile = profileResult.value.profile;
+
+      if (profile.static && profile.static.length > 0) {
+        parts.push('\n## User Preferences');
+        profile.static.slice(0, settings.maxProfileItems).forEach(fact => {
+          parts.push(`- ${fact}`);
+        });
+      }
+
+      if (profile.dynamic && profile.dynamic.length > 0) {
+        parts.push('\n## Recent Context');
+        profile.dynamic.slice(0, settings.maxProfileItems).forEach(fact => {
+          parts.push(`- ${fact}`);
+        });
+      }
+    }
+
+    // Add project memories if available
+    if (memoriesResult.status === 'fulfilled' && memoriesResult.value?.memories) {
+      const memories = memoriesResult.value.memories;
+
+      if (memories.length > 0) {
+        parts.push('\n## Project Knowledge');
+        memories.slice(0, settings.maxContextMemories).forEach(mem => {
+          const summary = mem.summary || mem.content || '';
+          if (summary) {
+            parts.push(`- ${summary.slice(0, 200)}`);
+          }
+        });
+      }
+    }
+
+    // If no memories found, add helpful message
+    if (parts.length === 1) {
+      parts.push('\nNo previous memories found for this project.');
+      parts.push('Memories will be saved as you work.');
+    }
+
+    parts.push('\n</supermemory-context>');
+
+    const additionalContext = parts.join('\n');
+
+    debugLog(settings, 'Context generated', { length: additionalContext.length });
+
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        additionalContext
+      }
+    });
+
+  } catch (err) {
+    debugLog(settings, 'Error', { error: err.message });
+    console.error(`Supermemory: ${err.message}`);
+    // Non-blocking error - continue session without context
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        additionalContext: `<supermemory-status>
+Failed to load memories: ${err.message}
+Session will continue without memory context.
+</supermemory-status>`
+      }
+    });
+  }
+}
+
+main().catch(err => {
+  console.error(`Supermemory fatal: ${err.message}`);
+  process.exit(1);
+});
