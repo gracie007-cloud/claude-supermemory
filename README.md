@@ -9,8 +9,7 @@ Your agent remembers what you worked on - across sessions, across projects.
 ## Features
 
 - **Context Injection**: On session start, relevant memories are automatically injected into Claude's context
-- **Automatic Capture**: Tool usage (Edit, Write, Bash, Task) is captured as compressed observations
-- **Privacy Tags**: Use `<private>sensitive info</private>` to prevent content from being stored
+- **Automatic Capture**: Conversation turns are captured and stored for future context
 
 ## Installation
 

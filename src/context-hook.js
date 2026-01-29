@@ -3,6 +3,7 @@ const { getContainerTag, getProjectName } = require('./lib/container-tag');
 const { loadSettings, getApiKey, debugLog } = require('./lib/settings');
 const { readStdin, writeOutput } = require('./lib/stdin');
 const { startAuthFlow } = require('./lib/auth');
+const { formatContext } = require('./lib/format-context');
 
 async function main() {
   const settings = loadSettings();
@@ -32,54 +33,45 @@ async function main() {
 ${isTimeout ? 'Authentication timed out. Please complete login in the browser window.' : 'Authentication failed.'}
 If the browser did not open, visit: https://console.supermemory.ai/auth/connect
 Or set SUPERMEMORY_CC_API_KEY environment variable manually.
-</supermemory-status>`
-          }
+</supermemory-status>`,
+          },
         });
         return;
       }
     }
 
     const client = new SupermemoryClient(apiKey);
-    const [profileResult, memoriesResult] = await Promise.allSettled([
-      client.getProfile(containerTag, projectName),
-      client.listMemories(containerTag, settings.maxProjectMemories)
-    ]);
+    const profileResult = await client
+      .getProfile(containerTag, projectName)
+      .catch(() => null);
 
-    const parts = [`<supermemory-context project="${projectName}">`];
+    const additionalContext = formatContext(
+      profileResult,
+      true,
+      false,
+      settings.maxProfileItems,
+    );
 
-    if (profileResult.status === 'fulfilled' && profileResult.value?.profile) {
-      const profile = profileResult.value.profile;
-      if (profile.static?.length > 0) {
-        parts.push('\n## User Preferences');
-        profile.static.slice(0, settings.maxProfileItems).forEach(fact => parts.push(`- ${fact}`));
-      }
-      if (profile.dynamic?.length > 0) {
-        parts.push('\n## Recent Context');
-        profile.dynamic.slice(0, settings.maxProfileItems).forEach(fact => parts.push(`- ${fact}`));
-      }
+    if (!additionalContext) {
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: 'SessionStart',
+          additionalContext: `<supermemory-context>
+No previous memories found for this project.
+Memories will be saved as you work.
+</supermemory-context>`,
+        },
+      });
+      return;
     }
 
-    if (memoriesResult.status === 'fulfilled' && memoriesResult.value?.memories) {
-      const memories = memoriesResult.value.memories;
-      if (memories.length > 0) {
-        parts.push('\n## Project Knowledge');
-        memories.slice(0, settings.maxContextMemories).forEach(mem => {
-          const summary = mem.summary || mem.content || '';
-          if (summary) parts.push(`- ${summary.slice(0, 200)}`);
-        });
-      }
-    }
+    debugLog(settings, 'Context generated', {
+      length: additionalContext.length,
+    });
 
-    if (parts.length === 1) {
-      parts.push('\nNo previous memories found for this project.');
-      parts.push('Memories will be saved as you work.');
-    }
-
-    parts.push('\n</supermemory-context>');
-    const additionalContext = parts.join('\n');
-    debugLog(settings, 'Context generated', { length: additionalContext.length });
-    writeOutput({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext } });
-
+    writeOutput({
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext },
+    });
   } catch (err) {
     debugLog(settings, 'Error', { error: err.message });
     console.error(`Supermemory: ${err.message}`);
@@ -89,13 +81,13 @@ Or set SUPERMEMORY_CC_API_KEY environment variable manually.
         additionalContext: `<supermemory-status>
 Failed to load memories: ${err.message}
 Session will continue without memory context.
-</supermemory-status>`
-      }
+</supermemory-status>`,
+      },
     });
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error(`Supermemory fatal: ${err.message}`);
   process.exit(1);
 });

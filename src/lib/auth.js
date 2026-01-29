@@ -1,8 +1,8 @@
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const { exec } = require('child_process');
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const { exec } = require('node:child_process');
 
 const authSuccessHtml = require('../templates/auth-success.html');
 const authErrorHtml = require('../templates/auth-error.html');
@@ -10,7 +10,9 @@ const authErrorHtml = require('../templates/auth-error.html');
 const SETTINGS_DIR = path.join(os.homedir(), '.supermemory-claude');
 const CREDENTIALS_FILE = path.join(SETTINGS_DIR, 'credentials.json');
 
-const AUTH_BASE_URL = process.env.SUPERMEMORY_AUTH_URL || 'https://console.supermemory.ai/auth/connect';
+const AUTH_BASE_URL =
+  process.env.SUPERMEMORY_AUTH_URL ||
+  'https://console.supermemory.ai/auth/connect';
 const AUTH_PORT = 19876;
 const AUTH_TIMEOUT = 25000;
 
@@ -34,7 +36,7 @@ function saveCredentials(apiKey) {
   ensureDir();
   const data = {
     apiKey,
-    savedAt: new Date().toISOString()
+    savedAt: new Date().toISOString(),
   };
   fs.writeFileSync(CREDENTIALS_FILE, JSON.stringify(data, null, 2));
 }
@@ -48,9 +50,12 @@ function clearCredentials() {
 }
 
 function openBrowser(url) {
-  const cmd = process.platform === 'darwin' ? 'open'
-            : process.platform === 'win32' ? 'start'
-            : 'xdg-open';
+  const cmd =
+    process.platform === 'darwin'
+      ? 'open'
+      : process.platform === 'win32'
+        ? 'start'
+        : 'xdg-open';
   exec(`${cmd} "${url}"`);
 }
 
@@ -62,9 +67,10 @@ function startAuthFlow() {
       const url = new URL(req.url, `http://localhost:${AUTH_PORT}`);
 
       if (url.pathname === '/callback') {
-        const apiKey = url.searchParams.get('apikey') || url.searchParams.get('api_key');
+        const apiKey =
+          url.searchParams.get('apikey') || url.searchParams.get('api_key');
 
-        if (apiKey && apiKey.startsWith('sm_')) {
+        if (apiKey?.startsWith('sm_')) {
           saveCredentials(apiKey);
           res.writeHead(200, { 'Content-Type': 'text/html' });
           res.end(authSuccessHtml);
@@ -107,5 +113,5 @@ module.exports = {
   loadCredentials,
   saveCredentials,
   clearCredentials,
-  startAuthFlow
+  startAuthFlow,
 };

@@ -12,14 +12,13 @@ async function main() {
     debugLog(settings, 'PostToolUse', { sessionId, toolName });
 
     outputSuccess();
-
   } catch (err) {
     debugLog(settings, 'Error', { error: err.message });
     outputSuccess();
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error(`Supermemory fatal: ${err.message}`);
   process.exit(1);
 });

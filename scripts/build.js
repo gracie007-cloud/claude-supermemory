@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const esbuild = require('esbuild');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
@@ -12,7 +12,7 @@ const hooks = [
   'prompt-hook',
   'observation-hook',
   'summary-hook',
-  'search-memory'
+  'search-memory',
 ];
 
 async function build() {
@@ -34,13 +34,12 @@ async function build() {
         outfile: out,
         minify: true,
         banner: { js: '#!/usr/bin/env node' },
-        loader: { '.html': 'text' }
+        loader: { '.html': 'text' },
       });
 
       fs.chmodSync(out, 0o755);
       const stats = fs.statSync(out);
       console.log(`  ${hook}.cjs (${(stats.size / 1024).toFixed(1)} KB)`);
-
     } catch (err) {
       console.error(`Failed to build ${hook}:`, err.message);
       process.exit(1);

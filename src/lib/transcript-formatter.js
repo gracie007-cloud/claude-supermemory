@@ -1,6 +1,6 @@
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
 
 const MAX_TOOL_RESULT_LENGTH = 500;
 const SKIP_RESULT_TOOLS = ['Read'];
@@ -42,8 +42,7 @@ function parseTranscript(transcriptPath) {
     if (!line.trim()) continue;
     try {
       entries.push(JSON.parse(line));
-    } catch {
-    }
+    } catch {}
   }
 
   return entries;
@@ -51,7 +50,7 @@ function parseTranscript(transcriptPath) {
 
 function getEntriesSinceLastCapture(entries, lastCapturedUuid) {
   if (!lastCapturedUuid) {
-    return entries.filter(e => e.type === 'user' || e.type === 'assistant');
+    return entries.filter((e) => e.type === 'user' || e.type === 'assistant');
   }
 
   let foundLast = false;
@@ -108,10 +107,15 @@ function formatUserMessage(message) {
         if (SKIP_RESULT_TOOLS.includes(toolName)) {
           continue;
         }
-        const resultContent = truncate(cleanContent(block.content || ''), MAX_TOOL_RESULT_LENGTH);
+        const resultContent = truncate(
+          cleanContent(block.content || ''),
+          MAX_TOOL_RESULT_LENGTH,
+        );
         const status = block.is_error ? 'error' : 'success';
         if (resultContent) {
-          parts.push(`[tool_result:${toolName} status="${status}"]\n${resultContent}\n[tool_result:end]`);
+          parts.push(
+            `[tool_result:${toolName} status="${status}"]\n${resultContent}\n[tool_result:end]`,
+          );
         }
       }
     }
@@ -172,7 +176,7 @@ function cleanContent(text) {
 
 function truncate(text, maxLength) {
   if (!text || text.length <= maxLength) return text;
-  return text.slice(0, maxLength) + '...';
+  return `${text.slice(0, maxLength)}...`;
 }
 
 function formatNewEntries(transcriptPath, sessionId) {
@@ -220,5 +224,5 @@ module.exports = {
   cleanContent,
   truncate,
   getLastCapturedUuid,
-  setLastCapturedUuid
+  setLastCapturedUuid,
 };

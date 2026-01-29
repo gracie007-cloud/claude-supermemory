@@ -1,6 +1,6 @@
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
 const { loadCredentials } = require('./auth');
 
 const SETTINGS_DIR = path.join(os.homedir(), '.supermemory-claude');
@@ -13,7 +13,7 @@ const DEFAULT_SETTINGS = {
   maxProjectMemories: 20,
   maxProfileItems: 5,
   debug: false,
-  injectProfile: true
+  injectProfile: true,
 };
 
 function ensureSettingsDir() {
@@ -32,8 +32,12 @@ function loadSettings() {
   } catch (err) {
     console.error(`Settings: Failed to load ${SETTINGS_FILE}: ${err.message}`);
   }
-  if (process.env.SUPERMEMORY_CC_API_KEY) settings.apiKey = process.env.SUPERMEMORY_CC_API_KEY;
-  if (process.env.SUPERMEMORY_SKIP_TOOLS) settings.skipTools = process.env.SUPERMEMORY_SKIP_TOOLS.split(',').map(s => s.trim());
+  if (process.env.SUPERMEMORY_CC_API_KEY)
+    settings.apiKey = process.env.SUPERMEMORY_CC_API_KEY;
+  if (process.env.SUPERMEMORY_SKIP_TOOLS)
+    settings.skipTools = process.env.SUPERMEMORY_SKIP_TOOLS.split(',').map(
+      (s) => s.trim(),
+    );
   if (process.env.SUPERMEMORY_DEBUG === 'true') settings.debug = true;
   return settings;
 }
@@ -47,7 +51,8 @@ function saveSettings(settings) {
 
 function getApiKey(settings) {
   if (settings.apiKey) return settings.apiKey;
-  if (process.env.SUPERMEMORY_CC_API_KEY) return process.env.SUPERMEMORY_CC_API_KEY;
+  if (process.env.SUPERMEMORY_CC_API_KEY)
+    return process.env.SUPERMEMORY_CC_API_KEY;
 
   const credentials = loadCredentials();
   if (credentials?.apiKey) return credentials.apiKey;
@@ -66,7 +71,11 @@ function shouldCaptureTool(toolName, settings) {
 function debugLog(settings, message, data) {
   if (settings.debug) {
     const timestamp = new Date().toISOString();
-    console.error(data ? `[${timestamp}] ${message}: ${JSON.stringify(data)}` : `[${timestamp}] ${message}`);
+    console.error(
+      data
+        ? `[${timestamp}] ${message}: ${JSON.stringify(data)}`
+        : `[${timestamp}] ${message}`,
+    );
   }
 }
 
@@ -78,5 +87,5 @@ module.exports = {
   saveSettings,
   getApiKey,
   shouldCaptureTool,
-  debugLog
+  debugLog,
 };

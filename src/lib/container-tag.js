@@ -1,5 +1,5 @@
-const { execSync } = require('child_process');
-const crypto = require('crypto');
+const { execSync } = require('node:child_process');
+const crypto = require('node:crypto');
 
 function sha256(input) {
   return crypto.createHash('sha256').update(input).digest('hex').slice(0, 16);
@@ -10,7 +10,7 @@ function getGitRoot(cwd) {
     const gitRoot = execSync('git rev-parse --show-toplevel', {
       cwd,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
     return gitRoot || null;
   } catch {
@@ -34,7 +34,7 @@ function getUserContainerTag() {
   try {
     const email = execSync('git config user.email', {
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
     if (email) return `claudecode_user_${sha256(email)}`;
   } catch {}
@@ -42,4 +42,10 @@ function getUserContainerTag() {
   return `claudecode_user_${sha256(username)}`;
 }
 
-module.exports = { sha256, getGitRoot, getContainerTag, getProjectName, getUserContainerTag };
+module.exports = {
+  sha256,
+  getGitRoot,
+  getContainerTag,
+  getProjectName,
+  getUserContainerTag,
+};

@@ -44,13 +44,16 @@ async function main() {
     await client.addMemory(
       formatted,
       containerTag,
-      { type: 'session_turn', project: projectName, timestamp: new Date().toISOString() },
-      sessionId
+      {
+        type: 'session_turn',
+        project: projectName,
+        timestamp: new Date().toISOString(),
+      },
+      sessionId,
     );
 
     debugLog(settings, 'Session turn saved', { length: formatted.length });
     writeOutput({ continue: true });
-
   } catch (err) {
     debugLog(settings, 'Error', { error: err.message });
     console.error(`Supermemory: ${err.message}`);
@@ -58,7 +61,7 @@ async function main() {
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error(`Supermemory fatal: ${err.message}`);
   process.exit(1);
 });

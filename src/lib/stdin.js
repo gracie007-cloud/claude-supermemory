@@ -2,7 +2,9 @@ async function readStdin() {
   return new Promise((resolve, reject) => {
     let data = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => { data += chunk; });
+    process.stdin.on('data', (chunk) => {
+      data += chunk;
+    });
     process.stdin.on('end', () => {
       try {
         resolve(data.trim() ? JSON.parse(data) : {});
@@ -21,7 +23,9 @@ function writeOutput(data) {
 
 function outputSuccess(additionalContext = null) {
   if (additionalContext) {
-    writeOutput({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext } });
+    writeOutput({
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext },
+    });
   } else {
     writeOutput({ continue: true, suppressOutput: true });
   }

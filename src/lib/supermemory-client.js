@@ -1,7 +1,11 @@
 const Supermemory = require('supermemory').default;
-const { getRequestIntegrity, validateApiKeyFormat, validateContainerTag } = require('./validate.js');
+const {
+  getRequestIntegrity,
+  validateApiKeyFormat,
+  validateContainerTag,
+} = require('./validate.js');
 
-const DEFAULT_PROJECT_ID = 'sm_project_default';
+const DEFAULT_PROJECT_ID = 'claudecode_default';
 const API_URL = process.env.SUPERMEMORY_API_URL || 'https://api.supermemory.ai';
 
 class SupermemoryClient {
@@ -24,7 +28,7 @@ class SupermemoryClient {
     this.client = new Supermemory({
       apiKey,
       baseURL: API_URL,
-      defaultHeaders: integrityHeaders
+      defaultHeaders: integrityHeaders,
     });
     this.containerTag = tag;
   }
@@ -33,11 +37,15 @@ class SupermemoryClient {
     const payload = {
       content,
       containerTag: containerTag || this.containerTag,
-      metadata: { sm_source: 'claude-code-plugin', ...metadata }
+      metadata: { sm_source: 'claude-code-plugin', ...metadata },
     };
     if (customId) payload.customId = customId;
     const result = await this.client.add(payload);
-    return { id: result.id, status: result.status, containerTag: containerTag || this.containerTag };
+    return {
+      id: result.id,
+      status: result.status,
+      containerTag: containerTag || this.containerTag,
+    };
   }
 
   async search(query, containerTag, options = {}) {
@@ -45,41 +53,43 @@ class SupermemoryClient {
       q: query,
       containerTag: containerTag || this.containerTag,
       limit: options.limit || 10,
-      searchMode: options.searchMode || 'hybrid'
+      searchMode: options.searchMode || 'hybrid',
     });
     return {
-      results: result.results.map(r => ({
+      results: result.results.map((r) => ({
         id: r.id,
         memory: r.content || r.memory || r.context || '',
         similarity: r.similarity,
         title: r.title,
-        content: r.content
+        content: r.content,
       })),
       total: result.total,
-      timing: result.timing
+      timing: result.timing,
     };
   }
 
   async getProfile(containerTag, query) {
     const result = await this.client.profile({
       containerTag: containerTag || this.containerTag,
-      q: query
+      q: query,
     });
     return {
       profile: {
         static: result.profile?.static || [],
-        dynamic: result.profile?.dynamic || []
+        dynamic: result.profile?.dynamic || [],
       },
-      searchResults: result.searchResults ? {
-        results: result.searchResults.results.map(r => ({
-          id: r.id,
-          memory: r.content || r.context || '',
-          similarity: r.similarity,
-          title: r.title
-        })),
-        total: result.searchResults.total,
-        timing: result.searchResults.timing
-      } : undefined
+      searchResults: result.searchResults
+        ? {
+            results: result.searchResults.results.map((r) => ({
+              id: r.id,
+              memory: r.content || r.context || '',
+              similarity: r.similarity,
+              title: r.title,
+            })),
+            total: result.searchResults.total,
+            timing: result.searchResults.timing,
+          }
+        : undefined,
     };
   }
 
@@ -88,7 +98,7 @@ class SupermemoryClient {
       containerTags: containerTag || this.containerTag,
       limit,
       order: 'desc',
-      sort: 'createdAt'
+      sort: 'createdAt',
     });
     return { memories: result.memories || result.results || [] };
   }

@@ -6,7 +6,9 @@ async function main() {
   const query = process.argv.slice(2).join(' ');
 
   if (!query || !query.trim()) {
-    console.log('No search query provided. Please specify what you want to search for.');
+    console.log(
+      'No search query provided. Please specify what you want to search for.',
+    );
     return;
   }
 
@@ -17,7 +19,9 @@ async function main() {
     apiKey = getApiKey(settings);
   } catch {
     console.log('Supermemory API key not configured.');
-    console.log('Set SUPERMEMORY_CC_API_KEY environment variable to enable memory search.');
+    console.log(
+      'Set SUPERMEMORY_CC_API_KEY environment variable to enable memory search.',
+    );
     console.log('Get your key at: https://console.supermemory.ai');
     return;
   }
@@ -36,12 +40,12 @@ async function main() {
     if (result.profile) {
       if (result.profile.static?.length > 0) {
         console.log('### User Preferences');
-        result.profile.static.forEach(fact => console.log(`- ${fact}`));
+        result.profile.static.forEach((fact) => console.log(`- ${fact}`));
         console.log('');
       }
       if (result.profile.dynamic?.length > 0) {
         console.log('### Recent Context');
-        result.profile.dynamic.forEach(fact => console.log(`- ${fact}`));
+        result.profile.dynamic.forEach((fact) => console.log(`- ${fact}`));
         console.log('');
       }
     }
@@ -56,7 +60,9 @@ async function main() {
         console.log(content.slice(0, 500));
       });
     } else {
-      const searchResult = await client.search(query, containerTag, { limit: 10 });
+      const searchResult = await client.search(query, containerTag, {
+        limit: 10,
+      });
       if (searchResult.results?.length > 0) {
         console.log('### Relevant Memories');
         searchResult.results.forEach((mem, i) => {
@@ -68,16 +74,17 @@ async function main() {
         });
       } else {
         console.log('No memories found matching your query.');
-        console.log('Memories are automatically saved as you work in this project.');
+        console.log(
+          'Memories are automatically saved as you work in this project.',
+        );
       }
     }
-
   } catch (err) {
     console.log(`Error searching memories: ${err.message}`);
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error(`Fatal error: ${err.message}`);
   process.exit(1);
 });

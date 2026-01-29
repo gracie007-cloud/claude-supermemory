@@ -7,7 +7,7 @@ function getRelativePath(filePath) {
 function truncate(str, maxLen = 50) {
   if (!str) return '';
   if (str.length <= maxLen) return str;
-  return str.slice(0, maxLen) + '...';
+  return `${str.slice(0, maxLen)}...`;
 }
 
 function compressObservation(toolName, toolInput, toolResponse) {
@@ -19,7 +19,8 @@ function compressObservation(toolName, toolInput, toolResponse) {
       const file = getRelativePath(input.file_path);
       const oldSnippet = truncate(input.old_string, 30);
       const newSnippet = truncate(input.new_string, 30);
-      if (input.replace_all) return `Replaced all "${oldSnippet}" with "${newSnippet}" in ${file}`;
+      if (input.replace_all)
+        return `Replaced all "${oldSnippet}" with "${newSnippet}" in ${file}`;
       return `Edited ${file}: "${oldSnippet}" → "${newSnippet}"`;
     }
     case 'Write': {
@@ -30,7 +31,9 @@ function compressObservation(toolName, toolInput, toolResponse) {
     case 'Bash': {
       const cmd = truncate(input.command, 80);
       const success = !response.error && response.exitCode !== 1;
-      const desc = input.description ? ` - ${truncate(input.description, 40)}` : '';
+      const desc = input.description
+        ? ` - ${truncate(input.description, 40)}`
+        : '';
       return `Ran: ${cmd}${desc}${success ? '' : ' [FAILED]'}`;
     }
     case 'Task': {
@@ -76,9 +79,15 @@ function getObservationMetadata(toolName, toolInput) {
   const metadata = { tool: toolName };
   if (input.file_path) metadata.file = getRelativePath(input.file_path);
   if (input.notebook_path) metadata.file = getRelativePath(input.notebook_path);
-  if (toolName === 'Bash' && input.command) metadata.command = truncate(input.command, 100);
+  if (toolName === 'Bash' && input.command)
+    metadata.command = truncate(input.command, 100);
   if (input.pattern) metadata.pattern = truncate(input.pattern, 50);
   return metadata;
 }
 
-module.exports = { compressObservation, getObservationMetadata, getRelativePath, truncate };
+module.exports = {
+  compressObservation,
+  getObservationMetadata,
+  getRelativePath,
+  truncate,
+};
