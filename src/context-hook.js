@@ -1,9 +1,13 @@
 const { SupermemoryClient } = require('./lib/supermemory-client');
-const { getContainerTag, getProjectName } = require('./lib/container-tag');
+const {
+  getContainerTag,
+  getRepoContainerTag,
+  getProjectName,
+} = require('./lib/container-tag');
 const { loadSettings, getApiKey, debugLog } = require('./lib/settings');
 const { readStdin, writeOutput } = require('./lib/stdin');
 const { startAuthFlow } = require('./lib/auth');
-const { formatContext } = require('./lib/format-context');
+const { formatContext, combineContexts } = require('./lib/format-context');
 
 async function main() {
   const settings = loadSettings();
@@ -11,10 +15,9 @@ async function main() {
   try {
     const input = await readStdin();
     const cwd = input.cwd || process.cwd();
-    const containerTag = getContainerTag(cwd);
     const projectName = getProjectName(cwd);
 
-    debugLog(settings, 'SessionStart', { cwd, containerTag, projectName });
+    debugLog(settings, 'SessionStart', { cwd, projectName });
 
     let apiKey;
     try {
@@ -41,16 +44,39 @@ Or set SUPERMEMORY_CC_API_KEY environment variable manually.
     }
 
     const client = new SupermemoryClient(apiKey);
-    const profileResult = await client
-      .getProfile(containerTag, projectName)
-      .catch(() => null);
+    const personalTag = getContainerTag(cwd);
+    const repoTag = getRepoContainerTag(cwd);
 
-    const additionalContext = formatContext(
-      profileResult,
+    debugLog(settings, 'Fetching contexts', { personalTag, repoTag });
+
+    const [personalResult, repoResult] = await Promise.all([
+      client.getProfile(personalTag, projectName).catch(() => null),
+      client.getProfile(repoTag, projectName).catch(() => null),
+    ]);
+
+    const personalContext = formatContext(
+      personalResult,
       true,
       false,
       settings.maxProfileItems,
+      false,
     );
+
+    const repoContext = formatContext(
+      repoResult,
+      true,
+      false,
+      settings.maxProfileItems,
+      false,
+    );
+
+    const additionalContext = combineContexts([
+      { label: '### Personal Memories', content: personalContext },
+      {
+        label: '### Project Knowledge (Shared across team)',
+        content: repoContext,
+      },
+    ]);
 
     if (!additionalContext) {
       writeOutput({
@@ -67,6 +93,8 @@ Memories will be saved as you work.
 
     debugLog(settings, 'Context generated', {
       length: additionalContext.length,
+      hasPersonal: !!personalContext,
+      hasRepo: !!repoContext,
     });
 
     writeOutput({

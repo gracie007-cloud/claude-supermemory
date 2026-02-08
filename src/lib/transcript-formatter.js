@@ -1,12 +1,17 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const {
+  getIncludeTools,
+  shouldIncludeTool,
+  getSignalConfig,
+} = require('./settings');
 
 const MAX_TOOL_RESULT_LENGTH = 500;
-const SKIP_RESULT_TOOLS = ['Read'];
 const TRACKER_DIR = path.join(os.homedir(), '.supermemory-claude', 'trackers');
 
 let toolUseMap = new Map();
+let currentIncludeList = [];
 
 function ensureTrackerDir() {
   if (!fs.existsSync(TRACKER_DIR)) {
@@ -92,19 +97,19 @@ function formatUserMessage(message) {
   if (typeof content === 'string') {
     const cleaned = cleanContent(content);
     if (cleaned) {
-      parts.push(`[role:user]\n${cleaned}\n[user:end]`);
+      parts.push(`<|start|>user<|message|>${cleaned}<|end|>`);
     }
   } else if (Array.isArray(content)) {
     for (const block of content) {
       if (block.type === 'text' && block.text) {
         const cleaned = cleanContent(block.text);
         if (cleaned) {
-          parts.push(`[role:user]\n${cleaned}\n[user:end]`);
+          parts.push(`<|start|>user<|message|>${cleaned}<|end|>`);
         }
       } else if (block.type === 'tool_result') {
         const toolId = block.tool_use_id || '';
         const toolName = toolUseMap.get(toolId) || 'Unknown';
-        if (SKIP_RESULT_TOOLS.includes(toolName)) {
+        if (!shouldIncludeTool(toolName, currentIncludeList)) {
           continue;
         }
         const resultContent = truncate(
@@ -114,14 +119,14 @@ function formatUserMessage(message) {
         const status = block.is_error ? 'error' : 'success';
         if (resultContent) {
           parts.push(
-            `[tool_result:${toolName} status="${status}"]\n${resultContent}\n[tool_result:end]`,
+            `<|start|>assistant:tool_result<|message|>${toolName}(${status}): ${resultContent}<|end|>`,
           );
         }
       }
     }
   }
 
-  return parts.length > 0 ? parts.join('\n\n') : null;
+  return parts.length > 0 ? parts.join('\n') : null;
 }
 
 function formatAssistantMessage(message) {
@@ -138,31 +143,41 @@ function formatAssistantMessage(message) {
     if (block.type === 'text' && block.text) {
       const cleaned = cleanContent(block.text);
       if (cleaned) {
-        parts.push(`[role:assistant]\n${cleaned}\n[assistant:end]`);
+        parts.push({ type: 'text', content: cleaned });
       }
     } else if (block.type === 'tool_use') {
       const toolName = block.name || 'Unknown';
       const toolId = block.id || '';
-      const input = block.input || {};
-      const inputLines = formatToolInput(input);
-      parts.push(`[tool:${toolName}]\n${inputLines}\n[tool:end]`);
       if (toolId) {
         toolUseMap.set(toolId, toolName);
       }
+      if (!shouldIncludeTool(toolName, currentIncludeList)) {
+        continue;
+      }
+      const input = block.input || {};
+      const inputStr = formatToolInputCompact(input);
+      parts.push({ type: 'tool', toolName, inputStr });
     }
   }
 
-  return parts.length > 0 ? parts.join('\n\n') : null;
+  const formatted = parts.map((p) => {
+    if (p.type === 'text') {
+      return `<|start|>assistant<|message|>${p.content}<|end|>`;
+    }
+    return `<|start|>assistant:tool<|message|>${p.toolName}: ${p.inputStr}<|end|>`;
+  });
+
+  return formatted.length > 0 ? formatted.join('\n') : null;
 }
 
-function formatToolInput(input) {
-  const lines = [];
+function formatToolInputCompact(input) {
+  const parts = [];
   for (const [key, value] of Object.entries(input)) {
     let valueStr = typeof value === 'string' ? value : JSON.stringify(value);
-    valueStr = truncate(valueStr, 200);
-    lines.push(`${key}: ${valueStr}`);
+    valueStr = truncate(valueStr, 100);
+    parts.push(`${key}="${valueStr}"`);
   }
-  return lines.join('\n');
+  return parts.join(' ');
 }
 
 function cleanContent(text) {
@@ -179,8 +194,271 @@ function truncate(text, maxLength) {
   return `${text.slice(0, maxLength)}...`;
 }
 
-function formatNewEntries(transcriptPath, sessionId) {
+function getTextFromEntry(entry) {
+  if (!entry?.message?.content) return '';
+
+  const content = entry.message.content;
+
+  if (typeof content === 'string') {
+    return cleanContent(content);
+  }
+
+  if (Array.isArray(content)) {
+    const texts = [];
+    for (const block of content) {
+      if (block.type === 'text' && block.text) {
+        texts.push(cleanContent(block.text));
+      }
+    }
+    return texts.join(' ');
+  }
+
+  return '';
+}
+
+function hasTextContent(entry) {
+  if (!entry || entry.isMeta) return false;
+  return getTextFromEntry(entry).length > 0;
+}
+
+function groupEntriesIntoTurns(entries) {
+  const turns = [];
+  let currentTurn = { userEntries: [], assistantEntries: [], allEntries: [] };
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+
+    if (entry.type === 'user') {
+      if (currentTurn.assistantEntries.length > 0) {
+        turns.push(currentTurn);
+        currentTurn = { userEntries: [], assistantEntries: [], allEntries: [] };
+      }
+      currentTurn.userEntries.push(entry);
+      currentTurn.allEntries.push(entry);
+    } else if (entry.type === 'assistant') {
+      currentTurn.assistantEntries.push(entry);
+      currentTurn.allEntries.push(entry);
+    }
+  }
+
+  if (currentTurn.allEntries.length > 0) {
+    turns.push(currentTurn);
+  }
+
+  return turns;
+}
+
+function groupEntriesIntoSignalTurns(entries) {
+  const turns = [];
+  let currentTurn = { userEntries: [] };
+  let lastAssistantEntry = null;
+
+  const pushTurn = () => {
+    if (currentTurn.userEntries.length === 0 && !lastAssistantEntry) return;
+    const assistantEntries = lastAssistantEntry ? [lastAssistantEntry] : [];
+    const allEntries = [...currentTurn.userEntries, ...assistantEntries];
+    turns.push({
+      userEntries: currentTurn.userEntries,
+      assistantEntries,
+      allEntries,
+    });
+    currentTurn = { userEntries: [] };
+    lastAssistantEntry = null;
+  };
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!hasTextContent(entry)) continue;
+
+    if (entry.type === 'user') {
+      if (lastAssistantEntry) {
+        pushTurn();
+      }
+      currentTurn.userEntries.push(entry);
+    } else if (entry.type === 'assistant') {
+      lastAssistantEntry = entry;
+    }
+  }
+
+  pushTurn();
+
+  return turns;
+}
+
+function getTurnUserText(turn) {
+  const texts = [];
+  for (const entry of turn.userEntries) {
+    const text = getTextFromEntry(entry);
+    if (text) texts.push(text);
+  }
+  return texts.join(' ').toLowerCase();
+}
+
+function findSignalTurnIndices(turns, keywords) {
+  const signalIndices = [];
+
+  for (let i = 0; i < turns.length; i++) {
+    const turn = turns[i];
+    const userText = getTurnUserText(turn);
+
+    for (const keyword of keywords) {
+      if (userText.includes(keyword)) {
+        signalIndices.push(i);
+        break;
+      }
+    }
+  }
+
+  return signalIndices;
+}
+
+function getTurnsAroundSignals(turns, signalIndices, turnCount) {
+  if (signalIndices.length === 0) return [];
+
+  const includeSet = new Set();
+
+  for (const signalIdx of signalIndices) {
+    const startIdx = Math.max(0, signalIdx - (turnCount - 1));
+    for (let i = startIdx; i <= signalIdx; i++) {
+      includeSet.add(i);
+    }
+  }
+
+  const sortedIndices = Array.from(includeSet).sort((a, b) => a - b);
+  return sortedIndices.map((idx) => turns[idx]);
+}
+
+function formatEntryTextOnly(entry) {
+  if (entry.type === 'user') {
+    return formatUserMessageTextOnly(entry.message);
+  }
+
+  if (entry.type === 'assistant') {
+    return formatAssistantMessageTextOnly(entry.message);
+  }
+
+  return null;
+}
+
+function formatUserMessageTextOnly(message) {
+  if (!message?.content) return null;
+
+  const content = message.content;
+  const parts = [];
+
+  if (typeof content === 'string') {
+    const cleaned = cleanContent(content);
+    if (cleaned) {
+      parts.push(`<|start|>user<|message|>${cleaned}<|end|>`);
+    }
+  } else if (Array.isArray(content)) {
+    for (const block of content) {
+      if (block.type === 'text' && block.text) {
+        const cleaned = cleanContent(block.text);
+        if (cleaned) {
+          parts.push(`<|start|>user<|message|>${cleaned}<|end|>`);
+        }
+      }
+    }
+  }
+
+  return parts.length > 0 ? parts.join('\n') : null;
+}
+
+function formatAssistantMessageTextOnly(message) {
+  if (!message?.content) return null;
+
+  const content = message.content;
+  const parts = [];
+
+  if (typeof content === 'string') {
+    const cleaned = cleanContent(content);
+    if (cleaned) {
+      parts.push(`<|start|>assistant<|message|>${cleaned}<|end|>`);
+    }
+  } else if (Array.isArray(content)) {
+    for (const block of content) {
+      if (block.type === 'text' && block.text) {
+        const cleaned = cleanContent(block.text);
+        if (cleaned) {
+          parts.push(`<|start|>assistant<|message|>${cleaned}<|end|>`);
+        }
+      }
+    }
+  }
+
+  return parts.length > 0 ? parts.join('\n') : null;
+}
+
+function formatSignalEntries(transcriptPath, sessionId, cwd) {
   toolUseMap = new Map();
+  currentIncludeList = getIncludeTools(cwd);
+
+  const signalConfig = getSignalConfig(cwd);
+  const { keywords, turnsBefore } = signalConfig;
+
+  const entries = parseTranscript(transcriptPath);
+  if (entries.length === 0) return null;
+
+  const lastCapturedUuid = getLastCapturedUuid(sessionId);
+  const newEntries = getEntriesSinceLastCapture(entries, lastCapturedUuid);
+
+  if (newEntries.length === 0) return null;
+
+  const turns = groupEntriesIntoSignalTurns(newEntries);
+
+  if (turns.length === 0) return null;
+
+  const signalIndices = findSignalTurnIndices(turns, keywords);
+
+  if (signalIndices.length === 0) {
+    return null;
+  }
+
+  const turnsToFormat = getTurnsAroundSignals(
+    turns,
+    signalIndices,
+    turnsBefore,
+  );
+
+  if (turnsToFormat.length === 0) return null;
+
+  const allEntriesToFormat = [];
+  for (const turn of turnsToFormat) {
+    allEntriesToFormat.push(...turn.allEntries);
+  }
+
+  if (allEntriesToFormat.length === 0) return null;
+
+  const firstEntry = allEntriesToFormat[0];
+  const lastEntry = newEntries[newEntries.length - 1];
+  const timestamp = firstEntry.timestamp || new Date().toISOString();
+
+  const formattedParts = [];
+
+  formattedParts.push(`<|turn_start|>${timestamp}`);
+
+  for (const entry of allEntriesToFormat) {
+    const formatted = formatEntryTextOnly(entry);
+    if (formatted) {
+      formattedParts.push(formatted);
+    }
+  }
+
+  formattedParts.push('<|turn_end|>');
+
+  const result = formattedParts.join('\n\n');
+
+  if (result.length < 100) return null;
+
+  setLastCapturedUuid(sessionId, lastEntry.uuid);
+
+  return result;
+}
+
+function formatNewEntries(transcriptPath, sessionId, cwd) {
+  toolUseMap = new Map();
+  currentIncludeList = getIncludeTools(cwd);
 
   const entries = parseTranscript(transcriptPath);
   if (entries.length === 0) return null;
@@ -196,7 +474,7 @@ function formatNewEntries(transcriptPath, sessionId) {
 
   const formattedParts = [];
 
-  formattedParts.push(`[turn:start timestamp="${timestamp}"]`);
+  formattedParts.push(`<|turn_start|>${timestamp}`);
 
   for (const entry of newEntries) {
     const formatted = formatEntry(entry);
@@ -205,7 +483,7 @@ function formatNewEntries(transcriptPath, sessionId) {
     }
   }
 
-  formattedParts.push('[turn:end]');
+  formattedParts.push('<|turn_end|>');
 
   const result = formattedParts.join('\n\n');
 
@@ -221,8 +499,13 @@ module.exports = {
   getEntriesSinceLastCapture,
   formatEntry,
   formatNewEntries,
+  formatSignalEntries,
   cleanContent,
   truncate,
   getLastCapturedUuid,
   setLastCapturedUuid,
+  getTextFromEntry,
+  groupEntriesIntoTurns,
+  findSignalTurnIndices,
+  getTurnsAroundSignals,
 };

@@ -1,9 +1,33 @@
 const { SupermemoryClient } = require('./lib/supermemory-client');
-const { getContainerTag, getProjectName } = require('./lib/container-tag');
+const {
+  getProjectName,
+  getContainerTag,
+  getRepoContainerTag,
+} = require('./lib/container-tag');
 const { loadSettings, getApiKey } = require('./lib/settings');
+const { formatSearchResults } = require('./lib/format-context');
+
+function parseArgs(args) {
+  let containerType = 'both';
+  const queryParts = [];
+
+  for (const arg of args) {
+    if (arg === '--user') {
+      containerType = 'user';
+    } else if (arg === '--repo') {
+      containerType = 'repo';
+    } else if (arg === '--both') {
+      containerType = 'both';
+    } else {
+      queryParts.push(arg);
+    }
+  }
+
+  return { containerType, query: queryParts.join(' ') };
+}
 
 async function main() {
-  const query = process.argv.slice(2).join(' ');
+  const { containerType, query } = parseArgs(process.argv.slice(2));
 
   if (!query || !query.trim()) {
     console.log(
@@ -27,57 +51,38 @@ async function main() {
   }
 
   const cwd = process.cwd();
-  const containerTag = getContainerTag(cwd);
   const projectName = getProjectName(cwd);
+  const personalTag = getContainerTag(cwd);
+  const repoTag = getRepoContainerTag(cwd);
 
   try {
-    const client = new SupermemoryClient(apiKey, containerTag);
-    const result = await client.getProfile(containerTag, query);
+    const client = new SupermemoryClient(apiKey, personalTag);
 
-    console.log(`## Memory Search: "${query}"`);
     console.log(`Project: ${projectName}\n`);
 
-    if (result.profile) {
-      if (result.profile.static?.length > 0) {
-        console.log('### User Preferences');
-        result.profile.static.forEach((fact) => console.log(`- ${fact}`));
-        console.log('');
-      }
-      if (result.profile.dynamic?.length > 0) {
-        console.log('### Recent Context');
-        result.profile.dynamic.forEach((fact) => console.log(`- ${fact}`));
-        console.log('');
-      }
-    }
+    if (containerType === 'both') {
+      const [personalResult, repoResult] = await Promise.all([
+        client.search(query, personalTag, { limit: 5 }),
+        client.search(query, repoTag, { limit: 5 }),
+      ]);
 
-    if (result.searchResults?.results?.length > 0) {
-      console.log('### Relevant Memories');
-      result.searchResults.results.forEach((mem, i) => {
-        const similarity = Math.round(mem.similarity * 100);
-        const content = mem.memory || mem.content || '';
-        console.log(`\n**Memory ${i + 1}** (${similarity}% match)`);
-        if (mem.title) console.log(`*${mem.title}*`);
-        console.log(content.slice(0, 500));
-      });
-    } else {
-      const searchResult = await client.search(query, containerTag, {
-        limit: 10,
-      });
-      if (searchResult.results?.length > 0) {
-        console.log('### Relevant Memories');
-        searchResult.results.forEach((mem, i) => {
-          const similarity = Math.round(mem.similarity * 100);
-          const content = mem.memory || mem.content || '';
-          console.log(`\n**Memory ${i + 1}** (${similarity}% match)`);
-          if (mem.title) console.log(`*${mem.title}*`);
-          console.log(content.slice(0, 500));
-        });
-      } else {
-        console.log('No memories found matching your query.');
+      if (personalResult.results?.length > 0) {
         console.log(
-          'Memories are automatically saved as you work in this project.',
+          formatSearchResults(query, personalResult.results, 'Personal'),
         );
       }
+      if (repoResult.results?.length > 0) {
+        if (personalResult.results?.length > 0) console.log('');
+        console.log(formatSearchResults(query, repoResult.results, 'Project'));
+      }
+      if (!personalResult.results?.length && !repoResult.results?.length) {
+        console.log(`No memories found for "${query}"`);
+      }
+    } else {
+      const tag = containerType === 'user' ? personalTag : repoTag;
+      const label = containerType === 'user' ? 'Personal' : 'Project';
+      const searchResult = await client.search(query, tag, { limit: 10 });
+      console.log(formatSearchResults(query, searchResult.results, label));
     }
   } catch (err) {
     console.log(`Error searching memories: ${err.message}`);

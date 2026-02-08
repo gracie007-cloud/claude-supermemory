@@ -1,3 +1,8 @@
+const CONTEXT_INTRO =
+  'The following is recalled context. Reference it only when relevant to the conversation.';
+const CONTEXT_DISCLAIMER =
+  "Use these memories naturally when relevant — including indirect connections — but don't force them into every response or make assumptions beyond what's stated.";
+
 function formatRelativeTime(isoTimestamp) {
   try {
     const dt = new Date(isoTimestamp);
@@ -22,56 +27,24 @@ function formatRelativeTime(isoTimestamp) {
   }
 }
 
-function deduplicateMemories(staticFacts, dynamicFacts, searchResults) {
-  const seen = new Set();
-
-  const uniqueStatic = staticFacts.filter((m) => {
-    if (seen.has(m)) return false;
-    seen.add(m);
-    return true;
-  });
-
-  const uniqueDynamic = dynamicFacts.filter((m) => {
-    if (seen.has(m)) return false;
-    seen.add(m);
-    return true;
-  });
-
-  const uniqueSearch = searchResults.filter((r) => {
-    const memory = r.memory ?? '';
-    if (!memory || seen.has(memory)) return false;
-    seen.add(memory);
-    return true;
-  });
-
-  return {
-    static: uniqueStatic,
-    dynamic: uniqueDynamic,
-    searchResults: uniqueSearch,
-  };
-}
-
 function formatContext(
   profileResult,
   includeProfile = true,
   includeRelevantMemories = false,
   maxResults = 10,
+  wrapWithTags = true,
 ) {
   if (!profileResult) return null;
 
-  const staticFacts = profileResult.profile?.static || [];
-  const dynamicFacts = profileResult.profile?.dynamic || [];
-  const searchResults = profileResult.searchResults?.results || [];
-
-  const deduped = deduplicateMemories(
-    includeProfile ? staticFacts : [],
-    includeProfile ? dynamicFacts : [],
-    includeRelevantMemories ? searchResults : [],
-  );
-
-  const statics = deduped.static.slice(0, maxResults);
-  const dynamics = deduped.dynamic.slice(0, maxResults);
-  const search = deduped.searchResults.slice(0, maxResults);
+  const statics = includeProfile
+    ? (profileResult.profile?.static || []).slice(0, maxResults)
+    : [];
+  const dynamics = includeProfile
+    ? (profileResult.profile?.dynamic || []).slice(0, maxResults)
+    : [];
+  const search = includeRelevantMemories
+    ? (profileResult.searchResults?.results || []).slice(0, maxResults)
+    : [];
 
   if (statics.length === 0 && dynamics.length === 0 && search.length === 0) {
     return null;
@@ -80,16 +53,13 @@ function formatContext(
   const sections = [];
 
   if (statics.length > 0) {
-    sections.push(
-      '## User Profile (Persistent)\n' +
-        statics.map((f) => `- ${f}`).join('\n'),
-    );
+    const items = statics.map((f) => `- ${f}`).join('\n');
+    sections.push(`## User Profile (Persistent)\n${items}`);
   }
 
   if (dynamics.length > 0) {
-    sections.push(
-      '## Recent Context\n' + dynamics.map((f) => `- ${f}`).join('\n'),
-    );
+    const items = dynamics.map((f) => `- ${f}`).join('\n');
+    sections.push(`## Recent Context\n${items}`);
   }
 
   if (search.length > 0) {
@@ -102,20 +72,60 @@ function formatContext(
       return `- ${prefix}${memory} ${pct}`.trim();
     });
     sections.push(
-      '## Relevant Memories (with relevance %)\n' + lines.join('\n'),
+      `## Relevant Memories (with relevance %)\n${lines.join('\n')}`,
     );
   }
 
-  const intro =
-    'The following is recalled context about the user. Reference it only when relevant to the conversation.';
-  const disclaimer =
-    "Use these memories naturally when relevant — including indirect connections — but don't force them into every response or make assumptions beyond what's stated.";
+  const content = sections.join('\n\n');
 
-  return `<supermemory-context>\n${intro}\n\n${sections.join('\n\n')}\n\n${disclaimer}\n</supermemory-context>`;
+  if (!wrapWithTags) {
+    return content;
+  }
+
+  return `<supermemory-context>\n${CONTEXT_INTRO}\n\n${content}\n\n${CONTEXT_DISCLAIMER}\n</supermemory-context>`;
+}
+
+function combineContexts(contexts) {
+  const validContexts = contexts.filter((c) => c.content);
+
+  if (validContexts.length === 0) {
+    return null;
+  }
+
+  const sections = validContexts.map((c) => {
+    if (c.label) {
+      return `${c.label}\n\n${c.content}`;
+    }
+    return c.content;
+  });
+
+  return `<supermemory-context>\n${CONTEXT_INTRO}\n\n${sections.join('\n\n---\n\n')}\n\n${CONTEXT_DISCLAIMER}\n</supermemory-context>`;
+}
+
+function formatSearchResults(query, results, label) {
+  const header = label
+    ? `${label} memories for "${query}"`
+    : `Memories for "${query}"`;
+
+  if (!results || results.length === 0) {
+    return `No ${label ? `${label.toLowerCase()} ` : ''}memories found for "${query}"`;
+  }
+
+  const lines = results.map((r) => {
+    const memory = r.memory ?? '';
+    const timeStr = r.updatedAt ? formatRelativeTime(r.updatedAt) : '';
+    const pct =
+      r.similarity != null ? `[${Math.round(r.similarity * 100)}%]` : '';
+    const prefix = timeStr ? `[${timeStr}] ` : '';
+    return `${prefix}${memory} ${pct}`.trim();
+  });
+
+  return `${header}\n${lines.join('\n')}`;
 }
 
 module.exports = {
   formatContext,
+  combineContexts,
   formatRelativeTime,
-  deduplicateMemories,
+  formatSearchResults,
 };
